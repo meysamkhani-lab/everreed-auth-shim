@@ -1,0 +1,28 @@
+# EverReed native OAuth callback shim site.
+# Hosted at https://auth.everreed.app — MUST be a separate site from the main
+# app (everreed.app), MUST NOT serve /.well-known/assetlinks.json, MUST NOT
+# redirect to everreed.app or everreed.lovable.app.
+
+[build]
+  publish = "."
+  command = ""
+
+# Force correct content type for the shim (some Netlify edge nodes have been
+# observed serving static .html as application/octet-stream when there is no
+# build step).
+[[headers]]
+  for = "/native-callback.html"
+  [headers.values]
+    Content-Type = "text/html; charset=utf-8"
+    Cache-Control = "no-store"
+    Referrer-Policy = "no-referrer"
+    X-Content-Type-Options = "nosniff"
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Frame-Options = "DENY"
+    Referrer-Policy = "no-referrer"
+
+# Explicitly do NOT define any /* -> /index.html SPA fallback and do NOT
+# define any redirect to everreed.app. Unknown paths should 404.
