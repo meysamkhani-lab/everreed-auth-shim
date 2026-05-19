@@ -4,48 +4,51 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <meta name="referrer" content="no-referrer" />
+<meta name="robots" content="noindex,nofollow" />
 <title>Signing you in…</title>
 <style>
-  html, body { margin: 0; padding: 0; height: 100%; background: #0F1115; color: #E8E6E1; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Helvetica, Arial, sans-serif; }
+  :root {
+    --bg: #F4F6F8;
+    --surface: #FFFFFF;
+    --ink: #0F1115;
+    --muted: #6B6F76;
+    --gold: #A98B57;
+  }
+  html, body { margin: 0; padding: 0; height: 100%; background: var(--bg); color: var(--ink);
+    font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; }
   .wrap { min-height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 24px; text-align: center; }
-  h1 { font-family: "Playfair Display", Georgia, serif; font-weight: 600; font-size: 22px; margin: 0 0 8px; color: #D4AF37; }
-  p { margin: 4px 0; font-size: 14px; opacity: 0.85; }
-  pre { margin-top: 16px; max-width: 100%; white-space: pre-wrap; word-break: break-all; font-size: 11px; opacity: 0.6; text-align: left; }
+  .brand { font-family: "Playfair Display", Georgia, serif; font-weight: 600; font-size: 28px; letter-spacing: 0.2px; color: var(--gold); margin: 0 0 18px; }
+  .title { font-size: 15px; font-weight: 500; margin: 0 0 4px; }
+  .sub { font-size: 13px; color: var(--muted); margin: 0; }
+  .spinner { width: 22px; height: 22px; border-radius: 50%; border: 2px solid rgba(15,17,21,0.12); border-top-color: var(--gold); animation: spin 0.9s linear infinite; margin: 0 0 18px; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .return-btn { display: none; margin-top: 22px; padding: 12px 20px; border-radius: 12px; border: 1px solid rgba(15,17,21,0.12); background: var(--surface); color: var(--ink); font-size: 14px; font-weight: 500; cursor: pointer; box-shadow: 0 1px 2px rgba(15,17,21,0.04); }
+  .return-btn:hover { background: #FAFBFC; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #0F1115; --surface: #181D24; --ink: #E8E6E1; --muted: #9AA0A6; }
+    .return-btn { border-color: rgba(232,230,225,0.14); }
+  }
 </style>
 </head>
 <body>
 <div class="wrap">
-  <h1>Signing you in…</h1>
-  <p>Returning to the app.</p>
-  <pre id="diag"></pre>
+  <div class="spinner" aria-hidden="true"></div>
+  <h1 class="brand">EverReed</h1>
+  <p class="title">Signing you in…</p>
+  <p class="sub">Returning to the app…</p>
+  <button id="returnBtn" class="return-btn" type="button">Return to EverReed</button>
 </div>
 <script>
-/**
- * EverReed native OAuth shim — runs on auth.everreed.app (NOT App-Linked,
- * NOT canonical-redirected). Converts Supabase implicit-flow URL fragment
- * (#access_token=...&refresh_token=...) into a custom-scheme deeplink
- * (everreed://oauth/auth?access_token=...&refresh_token=...) that Despia
- * routes into the app's WebView at /auth.
- *
- * Do NOT host this on everreed.app (Android App Links hijack) or
- * everreed.lovable.app (canonical 302 redirects to everreed.app).
- */
 (function () {
-  var diag = document.getElementById('diag');
-  function log(msg) {
-    try { console.log('[NativeCallbackHTML]', msg); } catch (_) {}
-    if (diag) diag.textContent += msg + '\n';
-  }
-
-  log('href=' + window.location.href);
+  // SECURITY: never render or log any URL, hash, query, deep link, or token values.
+  // All diagnostic output is reduced to value-free booleans.
 
   var params = new URLSearchParams(window.location.search);
   var scheme = params.get('deeplink_scheme');
   if (!scheme) {
-    log('ERROR: no deeplink_scheme param');
+    try { console.warn('[NativeCallback] missing deeplink_scheme'); } catch (_) {}
     return;
   }
-  log('scheme=' + scheme);
 
   var hash  = new URLSearchParams(window.location.hash.substring(1));
   var accessToken  = hash.get('access_token')  || params.get('access_token');
@@ -53,45 +56,35 @@
   var error = hash.get('error') || params.get('error');
   var code  = params.get('code');
 
-  log('has_token=' + !!accessToken + ' has_refresh=' + !!refreshToken + ' has_code=' + !!code + ' has_error=' + !!error);
-
-  // Despia control prefix: `<scheme>://oauth/auth?...` tells Despia to close
-  // the secure browser session and navigate the WebView to `/auth?...`.
   var deeplinkPath = 'oauth/auth';
-  var deeplinkQueryKeys;
   var deeplink;
   if (accessToken) {
-    deeplinkQueryKeys = 'access_token,refresh_token';
     deeplink = scheme + '://' + deeplinkPath +
       '?access_token='  + encodeURIComponent(accessToken) +
       '&refresh_token=' + encodeURIComponent(refreshToken);
   } else if (code) {
-    deeplinkQueryKeys = 'code';
     deeplink = scheme + '://' + deeplinkPath + '?code=' + encodeURIComponent(code);
   } else if (error) {
-    deeplinkQueryKeys = 'error';
+    // error string may be a generic code like "access_denied" — still pass through but never render
     deeplink = scheme + '://' + deeplinkPath + '?error=' + encodeURIComponent(error);
   } else {
-    deeplinkQueryKeys = 'error';
     deeplink = scheme + '://' + deeplinkPath + '?error=no_token_or_code';
   }
-  log('firing scheme=' + scheme + ' path=' + deeplinkPath + ' query_keys=' + deeplinkQueryKeys);
 
-  // Token-safe diagnostic beacon. NEVER includes token/code values.
+  // Token-safe probe beacon: sends booleans + key counts only, never values.
   try {
-    var searchKeys = [];
-    params.forEach(function (_v, k) { searchKeys.push(k); });
-    var hashKeys = [];
-    hash.forEach(function (_v, k) { hashKeys.push(k); });
+    var searchKeyCount = 0;
+    params.forEach(function () { searchKeyCount++; });
+    var hashKeyCount = 0;
+    hash.forEach(function () { hashKeyCount++; });
     var probeBody = JSON.stringify({
       stage: 'pre_deeplink',
-      source: 'auth.everreed.app/native-callback.html',
+      source: 'native-callback.html',
       host: window.location.host,
       pathname: window.location.pathname,
-      scheme: scheme,
       deeplink_path: deeplinkPath,
-      search_keys: searchKeys.sort().join(',') || '(none)',
-      hash_keys: hashKeys.sort().join(',') || '(none)',
+      search_key_count: searchKeyCount,
+      hash_key_count: hashKeyCount,
       has_access_token: !!accessToken,
       has_refresh_token: !!refreshToken,
       has_code: !!code,
@@ -102,8 +95,7 @@
     if (navigator.sendBeacon) {
       try {
         sent = navigator.sendBeacon(probeUrl, new Blob([probeBody], { type: 'application/json' }));
-        log('probe sendBeacon=' + sent);
-      } catch (e) { log('probe sendBeacon threw: ' + (e && e.message ? e.message : String(e))); }
+      } catch (_) {}
     }
     if (!sent) {
       try {
@@ -111,23 +103,38 @@
         xhr.open('POST', probeUrl, false);
         xhr.setRequestHeader('Content-Type', 'application/json');
         xhr.send(probeBody);
-        log('probe xhr status=' + xhr.status);
-      } catch (e) { log('probe xhr threw: ' + (e && e.message ? e.message : String(e))); }
+      } catch (_) {}
     }
-  } catch (e) { log('probe outer threw: ' + (e && e.message ? e.message : String(e))); }
+  } catch (_) {}
 
-  // Fire the custom-scheme deeplink. Chrome Custom Tabs / ASWebAuthenticationSession
-  // hands off to the app on this scheme and closes the browser tab.
-  window.location.href = deeplink;
+  // Fire deeplink. External browser (Custom Tabs / ASWebAuthSession) hands off to native app.
+  try { window.location.href = deeplink; } catch (_) {}
 
-  // Watchdog only — do NOT redirect to everreed.app or everreed.lovable.app,
-  // either would re-introduce the App Link / canonical-redirect failure modes.
+  // Fallback for in-WebView load: navigate to in-app callback route.
   setTimeout(function () {
-    log('deeplink not consumed after 1500ms — app may not have registered scheme');
+    try {
+      var path = '/oauth/auth' + (accessToken
+        ? ('?access_token=' + encodeURIComponent(accessToken) + '&refresh_token=' + encodeURIComponent(refreshToken))
+        : code ? ('?code=' + encodeURIComponent(code))
+        : error ? ('?error=' + encodeURIComponent(error))
+        : '?error=no_token_or_code');
+      if (/(^|\.)lovable\.app$/.test(window.location.hostname)) {
+        window.location.replace('https://everreed.app' + path);
+      } else {
+        window.location.replace(path);
+      }
+    } catch (_) {}
   }, 1500);
+
+  // After ~4s, surface the manual return button (no visible href, no token text).
   setTimeout(function () {
-    log('still here 6s after start — deeplink not consumed');
-  }, 6000);
+    var btn = document.getElementById('returnBtn');
+    if (!btn) return;
+    btn.style.display = 'inline-block';
+    btn.addEventListener('click', function () {
+      try { window.location.href = deeplink; } catch (_) {}
+    });
+  }, 4000);
 })();
 </script>
 </body>
