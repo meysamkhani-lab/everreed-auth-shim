@@ -1,9 +1,12 @@
 # everreed-auth-shim
 
 Single-purpose static site hosted at **`https://auth.everreed.app`**. Its only
-job is to receive Supabase OAuth implicit-flow redirects, read tokens from the
-URL fragment, and fire the `everreed://oauth/auth` custom-scheme deeplink that
-Despia uses to route the WebView back to `/auth`.
+job is to return an OAuth callback (token pair or authorization code) to
+EverReed through the existing `everreed://oauth/auth` route. Google sign-in,
+Apple sign-in and native identity linking share this page. If the browser
+blocks the automatic handoff, the reader can tap **Return to EverReed** once
+while the page stays open. The retry expires after one minute and is discarded
+when the page is hidden or the reader leaves.
 
 ## Why a separate site
 
@@ -57,7 +60,52 @@ The main EverReed app cannot host this callback page:
 
 ## Diagnostics
 
-Each callback hit fires a `sendBeacon` to the EverReed
-`auth-callback-probe` edge function with **token-safe** metadata only (param
-key names, host, pathname, presence booleans — never token values). Check
-that function's logs to confirm the shim actually executed on a given device.
+The page scrubs its address before attempting the native return. Its existing
+best-effort probe sends only the host, path, fixed stage and route, parameter
+counts and presence flags. A probe establishes that the callback page ran.
+Only the app can confirm that a reader's session opened.
+
+## Local regression checks
+
+Run the fixture suite from this repository with Node.js 20 or later:
+
+```sh
+node --test .tests/native-callback.test.mjs
+```
+
+The tests execute the page's own script with synthetic callbacks and a simulated
+browser. A release also needs physical iOS and Android sign-in checks.
+
+## Release verification
+
+A push to the Netlify production branch may publish immediately. Obtain owner
+release approval before pushing. In the existing Netlify site for
+`auth.everreed.app`, verify the source repository and published revision.
+Compare the public file with the approved checkout using an ordinary GET with
+no callback parameters. Run from the approved checkout on macOS or Linux:
+
+```sh
+python3 - <<'PY'
+from hashlib import sha256
+from pathlib import Path
+from urllib.request import urlopen
+
+url = "https://auth.everreed.app/native-callback.html"
+expected = sha256(Path("native-callback.html").read_bytes()).hexdigest()
+with urlopen(url, timeout=15) as response:
+    assert response.status == 200 and response.geturl() == url
+    assert response.headers.get_content_type() == "text/html"
+    assert "no-store" in response.headers.get("Cache-Control", "").lower()
+    assert response.headers.get("Referrer-Policy", "").lower() == "no-referrer"
+    assert sha256(response.read()).hexdigest() == expected
+print("Verified callback bytes and headers:", expected)
+PY
+```
+
+On a physical iPhone and Android phone, use an existing test account. Start
+Google and Apple sign-in from EverReed where offered. Confirm the correct
+account opens and remains signed in after reopening the app. If the browser
+keeps the return page open, tap **Return to EverReed** and check that Back
+does not repeat the handoff. On a separate attempt, cancel at the provider
+and confirm that sign-in can be started again. Record the device, provider and
+outcome only. Keep the reader-facing release note pending until these checks pass.
